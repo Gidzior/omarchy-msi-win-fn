@@ -1,0 +1,21 @@
+#!/bin/bash -p
+set -euo pipefail
+[[ $# == 0 && $EUID == 0 ]] || exit 1
+control=/sys/devices/platform/msi-ec/win_key
+exec 9>/run/lock/omarchy-win-fn.lock
+/usr/bin/flock -n 9 || exit 0
+read -r old < "$control"
+case "$old" in
+  left) next=right ;;
+  right) next=left ;;
+  *) exit 1 ;;
+esac
+pending=$(/usr/bin/mktemp /etc/tmpfiles.d/.msi-win-fn.XXXXXX)
+trap '/usr/bin/rm -f "$pending"' EXIT
+printf 'w /sys/devices/platform/msi-ec/win_key - - - - %s\n' "$next" > "$pending"
+/usr/bin/chmod 644 "$pending"
+printf '%s\n' "$next" > "$control"
+if ! /usr/bin/mv -fT "$pending" /etc/tmpfiles.d/msi-win-fn.conf; then
+  printf '%s\n' "$old" > "$control"
+  exit 1
+fi
